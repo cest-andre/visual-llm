@@ -40,6 +40,8 @@ parser.add_argument('--network', type=str)
 parser.add_argument('--layer', type=str)
 parser.add_argument('--basedir', type=str)
 parser.add_argument('--sae_ckpt', type=str)
+parser.add_argument('--start_idx', type=int, default=0)
+parser.add_argument('--stop_idx', type=int, default=100)
 args = parser.parse_args()
 
 network = args.network
@@ -50,7 +52,7 @@ dashboard_root = os.path.join(basedir, f'sae_dashboard_viz/{network}/{layer}')
 sae_root = os.path.join(basedir, f'sae_checkpoints/{network}/{layer}/{args.sae_ckpt}/final_102400000')
 
 
-def save_feature_dashboard(save_html=False, device='cuda:0'):
+def save_feature_dashboard(start_idx, stop_idx, save_html=False, device='cuda:0'):
     model = load_hooked_llava(states_path=os.path.join(basedir, f'{network}_lens_weights.pth'), device=device)
 
     sae = SAE.load_from_pretrained(
@@ -71,7 +73,7 @@ def save_feature_dashboard(save_html=False, device='cuda:0'):
     )
 
     sae_sparsity = load_file(os.path.join(sae_root, "sparsity.safetensors"))['sparsity']
-    feat_idx = torch.squeeze(torch.nonzero(sae_sparsity > -5)).tolist()[200:256]
+    feat_idx = torch.squeeze(torch.nonzero(sae_sparsity > -5)).tolist()[start_idx:stop_idx]
 
     feature_vis_config = SaeVisConfig(
         hook_point=f"{layer}.hook_resid_pre",
@@ -185,8 +187,3 @@ def prepare_autointerp_acts(json_path):
 
     with open(os.path.join(autointerp_root, f"{network}_100feats_batch4_autointerp_results.json"), 'w') as f:
         json.dump(results, f)
-
-
-json_path = save_feature_dashboard(save_html=True)
-# json_path = os.path.join(dashboard_root, f"{network}_batch2_25ksubset_pile-10k.json")
-prepare_autointerp_acts(json_path)
