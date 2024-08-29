@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import sys
 import argparse
 from PIL import Image
 import numpy as np
@@ -11,16 +12,18 @@ from lucent.optvis import render, objectives, transform
 import lucent.optvis.param as param
 from safetensors.torch import load_file
 
+sys.path.append('LLaVA')
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path, tokenizer_image_token
 
 
-class MyNet(nn.Module):
+#   Wrapper so that we have control over the forward pass.
+class LucentWrapper(nn.Module):
 
     target_neuron = None
     all_acts = []
 
-    def __init__(self, model, input_ids, layer_number=None, use_sae=False):
+    def __init__(self, model, input_ids, layer_number=None, use_sae=False, expansion=8):
         super().__init__()
         self.model = model
 
@@ -38,7 +41,7 @@ class MyNet(nn.Module):
         
         self.use_sae = use_sae
         if self.use_sae:
-            self.map = nn.Linear(4096, 4096*8, bias=False)
+            self.map = nn.Linear(4096, 4096*expansion, bias=False)
 
 
     @torch.autocast(device_type="cuda")
@@ -79,10 +82,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--network', type=str)
 parser.add_argument('--basedir', type=str)
 parser.add_argument('--module', type=str)
-parser.add_argument('--neuron', type=int)
+parser.add_argument('--start_feat', type=int, default=0)
+parser.add_argument('--stop_feat', type=int, default=8)
 parser.add_argument('--sae', action='store_true')
 parser.add_argument('--sae_root', type=str, required=False)
-parser.add_argument('--type', type=str)
 parser.add_argument('--device', type=int, default=0)
 parser.add_argument('--jitter', type=int, default=16)
 parser.add_argument('--steps', type=int, default=2560)
@@ -100,25 +103,19 @@ tokenizer, model, image_processor, context_len = load_pretrained_model(
 
 # input_ids = tokenizer_image_token('What is this an image of?<image>', tokenizer, return_tensors='pt').to(device_str)
 
-model = MyNet(model, None, int(args.module.split('.')[-1]), args.sae)
+model = LucentWrapper(model, None, int(args.module.split('.')[-1]), args.sae)
 model.to(device_str).eval()
 
-unit = None
+units = None
 if args.sae:
     sae_sparsity = load_file(os.path.join(args.sae_root, "sparsity.safetensors"))['sparsity']
-    unit = torch.nonzero(sae_sparsity > -5)[args.neuron][0]
+    units = torch.nonzero(sae_sparsity > -5)[args.start_feat:args.stop_feat][:, 0].tolist()
     sae_weights = load_file(os.path.join(args.sae_root, "sae_weights.safetensors"))
     states = model.state_dict()
     states['map.weight'] = torch.transpose(sae_weights['W_enc'], 0, 1)
     model.load_state_dict(states)
 else:
-    unit = args.neuron
-
-# unit = args.neuron
-savedir = os.path.join(args.basedir, args.network, args.module, f"unit{unit}")
-Path(savedir).mkdir(parents=True, exist_ok=True)
-
-model.target_neuron = unit
+    units = list(range(args.start_feat, args.stop_feat))
 
 transforms = None
 if args.jitter < 4:
@@ -136,13 +133,21 @@ else:
         transform.jitter(int(args.jitter/2)),
         torchvision.transforms.CenterCrop(336)
     ]
-param_f = lambda: param.images.image(336, decorrelate=True)
 
-print(f"BEGIN MODULE {args.module} NEURON {unit}")
-obj = objectives.neuron('0', unit)
+for unit in units:
+    savedir = os.path.join(args.basedir, args.network, args.module, f"unit{unit}")
+    Path(savedir).mkdir(parents=True, exist_ok=True)
 
-imgs = render.render_vis(nn.Sequential(model), obj, param_f=param_f, transforms=transforms, thresholds=(args.steps,), show_image=False)
-img = Image.fromarray((imgs[0][0]*255).astype(np.uint8))
-img.save(os.path.join(savedir, f"{args.steps}steps_distill_center.png"))
+    model.target_neuron = unit
 
-np.save(os.path.join(savedir, f"{args.steps}steps_distill_center_acts.npy"), np.array(model.all_acts))
+    print(f"BEGIN MODULE {args.module} NEURON {unit}")
+    param_f = lambda: param.images.image(336, decorrelate=True)
+    obj = objectives.neuron('0', unit)
+
+    imgs = render.render_vis(nn.Sequential(model), obj, param_f=param_f, transforms=transforms, thresholds=(args.steps,), show_image=False)
+    img = Image.fromarray((imgs[0][0]*255).astype(np.uint8))
+    img.save(os.path.join(savedir, f"{args.steps}steps_distill_center_acts.png"))
+
+    np.save(os.path.join(savedir, f"{args.steps}steps_distill_center_acts.npy"), np.array(model.all_acts))
+
+    model.all_acts = []

@@ -1,9 +1,11 @@
+import sys
 import torch
 from transformers import AutoModelForCausalLM
 from sae_lens.load_model import load_model
 import transformer_lens.loading_from_pretrained as loading
 from transformer_lens.pretrained.weight_conversions.mistral import convert_mistral_weights
 
+sys.path.append('LLaVA')
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
 

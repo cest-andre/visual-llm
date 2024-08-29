@@ -101,7 +101,7 @@ def save_feature_dashboard(start_idx, stop_idx, save_html=False, device='cuda:0'
     return json_path
 
 
-def prepare_autointerp_acts(json_path):
+def explain_features(json_path):
     model = load_hooked_llava(states_path=os.path.join(basedir, f'{network}_lens_weights.pth'), device='cpu')
 
     HARMONY_V4_MODELS.append('gpt-4o-mini')
@@ -127,7 +127,6 @@ def prepare_autointerp_acts(json_path):
             act_groups = data[f]['sequence_data']['seq_group_data']
 
             act_records = []
-
             for act in act_groups[0]['seq_data']:
                 tokens = model.tokenizer.batch_decode([[t] for t in act['token_ids']])
                 act_records.append(ActivationRecord(tokens=tokens, activations=act['feat_acts']))
