@@ -8,6 +8,46 @@ from torchvision.io import read_image
 from torchvision.utils import make_grid
 
 
+def plot_score_histo(results_root, num_feats):
+    block_num = results_root.split('/')[-1]
+
+    mistral_file = open(os.path.join(results_root, 'mistral_100feats_autointerp_results.json'))
+    mistral_it_results = json.load(mistral_file)
+    mistral_file = open(os.path.join(results_root, 'mistral_100feats_batch2_autointerp_results.json'))
+    mistral_it_results += json.load(mistral_file)
+    mistral_file = open(os.path.join(results_root, 'mistral_100feats_batch3_autointerp_results.json'))
+    mistral_it_results += json.load(mistral_file)
+    mistral_file = open(os.path.join(results_root, 'mistral_100feats_batch4_autointerp_results.json'))
+    mistral_it_results += json.load(mistral_file)
+    mistral_it_results = np.array([result['score'] for result in mistral_it_results[:num_feats]])
+    print(mistral_it_results.shape)
+    print(f"Mistral-IT Mean: {np.mean(mistral_it_results)}")
+
+    llava_file = open(os.path.join(results_root, 'llava_100feats_autointerp_results.json'))
+    llava_results = json.load(llava_file)
+    llava_file = open(os.path.join(results_root, 'llava_100feats_batch2_autointerp_results.json'))
+    llava_results += json.load(llava_file)
+    #   Messed up batching, just doing a quick fix for now.
+    if '16' in block_num:
+        llava_file = open(os.path.join(results_root, 'llava_100feats_batch3_autointerp_results.json'))
+        llava_results += json.load(llava_file)
+    llava_file = open(os.path.join(results_root, 'llava_100feats_batch4_autointerp_results.json'))
+    llava_results += json.load(llava_file)
+    llava_results = np.array([result['score'] for result in llava_results[:num_feats]])
+    print(llava_results.shape)
+    print(f"Llava Mean: {np.mean(llava_results)}")
+
+    anova_result = f_oneway(mistral_it_results, llava_results)
+    print(anova_result)
+
+    plt.hist((mistral_it_results, llava_results), range=(-1, 1))
+    plt.title(f'Auto-Interp Scores (gpt-4o-mini) for SAE Features in {block_num}')
+    plt.legend(['Mistral-IT', 'Llava'], loc='upper left')
+    plt.xlabel('Score')
+    plt.savefig(os.path.join(results_root, f'{block_num}_histogram.png'))
+    plt.close()
+
+
 def plot_fz_steps(fz_root, features, interval):
     legend_entries = []
     for f in features:
@@ -26,47 +66,6 @@ def plot_fz_steps(fz_root, features, interval):
     plt.legend(legend_entries, loc='upper left')
 
     plt.savefig(os.path.join(fz_root, 'acts_plot.png'))
-
-
-def plot_score_histo(results_root, num_feats):
-    print(results_root.split('/')[-1])
-    llava_file = open(os.path.join(results_root, 'llava_100feats_autointerp_results.json'))
-    llava_results = json.load(llava_file)
-    llava_file = open(os.path.join(results_root, 'llava_100feats_batch2_autointerp_results.json'))
-    llava_results += json.load(llava_file)
-    
-    #   Messed up batching, just doing a quick fix for now.
-    if '16' in results_root.split('/')[-1]:
-        llava_file = open(os.path.join(results_root, 'llava_100feats_batch3_autointerp_results.json'))
-        llava_results += json.load(llava_file)
-
-    llava_file = open(os.path.join(results_root, 'llava_100feats_batch4_autointerp_results.json'))
-    llava_results += json.load(llava_file)
-    llava_results = np.array([result['score'] for result in llava_results[:num_feats]])
-    print(llava_results.shape)
-    print(f"Llava Mean: {np.mean(llava_results)}")
-
-    mistral_file = open(os.path.join(results_root, 'mistral_100feats_autointerp_results.json'))
-    mistral_results = json.load(mistral_file)
-    mistral_file = open(os.path.join(results_root, 'mistral_100feats_batch2_autointerp_results.json'))
-    mistral_results += json.load(mistral_file)
-    mistral_file = open(os.path.join(results_root, 'mistral_100feats_batch3_autointerp_results.json'))
-    mistral_results += json.load(mistral_file)
-    mistral_file = open(os.path.join(results_root, 'mistral_100feats_batch3_autointerp_results.json'))
-    mistral_results += json.load(mistral_file)
-    mistral_results = np.array([result['score'] for result in mistral_results[:num_feats]])
-    print(mistral_results.shape)
-    print(f"Mistral Mean: {np.mean(mistral_results)}")
-
-    anova_result = f_oneway(llava_results, mistral_results)
-    print(anova_result)
-
-    plt.hist((llava_results, mistral_results), range=(-1, 1))
-    plt.title(f'Auto-Interp Scores (gpt-4o-mini) for SAE Features in {results_root.split('/')[-1]}')
-    plt.legend(['Llava', 'Mistral'], loc='upper left')
-    plt.xlabel('Score')
-    plt.savefig(os.path.join(results_root, 'histogram.png'))
-    plt.close()
 
 
 def make_fz_grid(fz_root, features):
