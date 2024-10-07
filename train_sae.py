@@ -17,8 +17,8 @@ l1_warm_up_steps = total_training_steps // 20
 cfg = LanguageModelSAERunnerConfig(
     # Data Generating Function (Model + Training Distibuion)
     model_name="mistral-7b-instruct",
-    hook_name="blocks.16.hook_resid_pre",
-    hook_layer=16,
+    hook_name="blocks.8.hook_resid_pre",
+    hook_layer=8,
     d_in=4096,
     dataset_path="monology/pile-uncopyrighted",
     prepend_bos=False,
@@ -67,9 +67,9 @@ cfg = LanguageModelSAERunnerConfig(
     device="cuda:1",
     seed=42,
     n_checkpoints=5,
-    checkpoint_path="/media/andrelongon/DATA/visual_llm_study/sae_checkpoints/llava/blocks.16",
+    checkpoint_path="/media/andrelongon/DATA/DO_NOT_DELETE/sae_checkpoints/mistral_base/blocks.8",
     dtype="float32"
 )
 
-model = load_hooked_llava(states_path='/media/andrelongon/DATA/visual_llm_study/mistral-v0.2_lens_weights.pth', device='cuda:1')
+model = load_hooked_llava(states_path='/media/andrelongon/DATA/DO_NOT_DELETE/mistral_base_lens_weights.pth', device='cuda:1')
 sparse_autoencoder = SAETrainingRunner(cfg, override_model=model).run()

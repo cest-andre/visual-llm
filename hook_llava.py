@@ -1,6 +1,7 @@
 import sys
+import os
 import torch
-from transformers import AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from sae_lens.load_model import load_model
 import transformer_lens.loading_from_pretrained as loading
 from transformer_lens.pretrained.weight_conversions.mistral import convert_mistral_weights
@@ -36,8 +37,6 @@ def convert_llava_lens_weights(save_path=None):
         model_name=get_model_name_from_path(model_path)
     )
 
-    base_model = AutoModelForCausalLM.from_pretrained("mistralai/Mistral-7B-Instruct-v0.1")
-
     llava_states = llava_model.state_dict()
     states = base_model.state_dict()
 
@@ -67,7 +66,8 @@ def convert_llava_lens_weights(save_path=None):
 
 
 def convert_mistral_v2_weights(save_path=None):
-    base_model = AutoModelForCausalLM.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
+    model = AutoModelForCausalLM.from_pretrained("/media/andrelongon/DATA/DO_NOT_DELETE/mistral_base_hf")
+    # model = AutoModelForCausalLM.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
 
     cfg = loading.get_pretrained_model_config(
         'mistralai/Mistral-7B-Instruct-v0.1',
@@ -80,7 +80,7 @@ def convert_mistral_v2_weights(save_path=None):
         default_prepend_bos=True,
         dtype=torch.float32,
     )
-    states = convert_mistral_weights(base_model, cfg)
+    states = convert_mistral_weights(model, cfg)
 
     if save_path is not None:
         torch.save(states, save_path)

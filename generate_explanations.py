@@ -52,12 +52,26 @@ dashboard_root = os.path.join(basedir, f'sae_dashboard_viz/{network}/{layer}')
 sae_root = os.path.join(basedir, f'sae_checkpoints/{network}/{layer}/{args.sae_ckpt}/final_102400000')
 
 
-def save_feature_dashboard(start_idx, stop_idx, save_html=False, device='cuda:0'):
-    model = load_hooked_llava(states_path=os.path.join(basedir, f'{network}_lens_weights.pth'), device=device)
+def save_feature_dashboard(start_idx, stop_idx, llava=True, save_html=True, device='cuda:1'):
+    if llava:
+        model = load_hooked_llava(states_path=os.path.join(basedir, f'{network}_lens_weights.pth'), device=device)
 
-    sae = SAE.load_from_pretrained(
-        sae_root, device=device, dtype='float32'
-    )
+        sae = SAE.load_from_pretrained(
+            sae_root, device=device, dtype='float32'
+        )
+        sparsity = load_file(os.path.join(sae_root, "sparsity.safetensors"))['sparsity']
+    else:
+        model = load_model(
+            'HookedTransformer',
+            'mistral-7b',
+            device=device
+        )
+
+        sae, _, sparsity = SAE.from_pretrained(
+            release = "mistral-7b-res-wg",
+            sae_id = f"{layer}.hook_resid_pre",
+            device = device
+        )
 
     dataset = load_dataset(
         path = "NeelNanda/pile-10k",
@@ -72,15 +86,17 @@ def save_feature_dashboard(start_idx, stop_idx, save_html=False, device='cuda:0'
         add_bos_token=sae.cfg.prepend_bos,
     )
 
-    sae_sparsity = load_file(os.path.join(sae_root, "sparsity.safetensors"))['sparsity']
-    feat_idx = torch.squeeze(torch.nonzero(sae_sparsity > -5)).tolist()[start_idx:stop_idx]
+    if llava:
+        feat_idx = torch.squeeze(torch.nonzero(sparsity > -5)).tolist()[start_idx:stop_idx]
+    else:
+        feat_idx = list(range(start_idx, stop_idx))
 
     feature_vis_config = SaeVisConfig(
         hook_point=f"{layer}.hook_resid_pre",
         features=feat_idx,
         minibatch_size_features=64,
         minibatch_size_tokens=128,
-        quantile_feature_batch_size=64,
+        # quantile_feature_batch_size=64,
         verbose=True,
         device=device,
     )
@@ -88,14 +104,14 @@ def save_feature_dashboard(start_idx, stop_idx, save_html=False, device='cuda:0'
     viz_data = SaeVisRunner(feature_vis_config).run(
         encoder=sae,
         model=model,
-        tokens=token_dataset[:25000]["tokens"].to(device)
+        tokens=token_dataset[:10000]["tokens"].to(device)
     )
 
-    json_path = os.path.join(dashboard_root, f"{network}_batch4_25ksubset_pile-10k.json")
+    json_path = os.path.join(dashboard_root, f"{network}_feats{args.start_idx}-{args.stop_idx}_25ksubset_pile-10k.json")
     viz_data.save_json(json_path)
 
     if save_html:
-        filename = os.path.join(dashboard_root, f"{network}_batch4_25ksubset_pile-10k.html")
+        filename = os.path.join(dashboard_root, f"{network}_feats{args.start_idx}-{args.stop_idx}_25ksubset_pile-10k.html")
         save_feature_centric_vis(sae_vis_data=viz_data, filename=filename)
 
     return json_path
@@ -184,5 +200,27 @@ def explain_features(json_path):
 
     print(f"Mean score: {total_score / len(results)}")
 
-    with open(os.path.join(autointerp_root, f"{network}_100feats_batch4_autointerp_results.json"), 'w') as f:
+    with open(os.path.join(autointerp_root, f"{network}_feats{args.start_idx}-{args.stop_idx}_autointerp_results.json"), 'w') as f:
         json.dump(results, f)
+
+
+def extract_top_features(json_path):
+    with open(json_path) as interp_file:
+        interps = json.load(interp_file)
+
+        quotes = 0
+        for interp in interps:
+            if interp['score'] >= 0.5 and ("'" in interp['explanation'] or '"' in interp['explanation']):
+                print(interp)
+                quotes += 1
+
+        print(f'Quoted interp percent:  {quotes / len(interps)}')
+
+
+json_path = save_feature_dashboard(args.start_idx, args.stop_idx, llava=False)
+# json_path = os.path.join(dashboard_root, f"{network}_feats{args.start_idx}-{args.stop_idx}_25ksubset_pile-10k.json")
+# explain_features(json_path)
+
+# print(network)
+# json_path = os.path.join(autointerp_root, f"{network}_feats{args.start_idx}-{args.stop_idx}_autointerp_results.json")
+# extract_top_features(json_path)

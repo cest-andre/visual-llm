@@ -11,71 +11,13 @@ from torchvision import models
 from lucent.optvis import render, objectives, transform
 import lucent.optvis.param as param
 from safetensors.torch import load_file
+from sae_lens import SAE
 
 sys.path.append('LLaVA')
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path, tokenizer_image_token
 
-
-#   Wrapper so that we have control over the forward pass.
-class LucentWrapper(nn.Module):
-
-    target_neuron = None
-    all_acts = []
-
-    def __init__(self, model, input_ids, layer_number=None, use_sae=False, expansion=8):
-        super().__init__()
-        self.model = model
-
-        self.input_ids = None
-        if input_ids is not None:
-            self.input_ids = input_ids[None, :]
-
-        self.vision_tower = model.model.vision_tower
-        self.projector = model.model.mm_projector
-
-        self.llm = nn.Sequential()
-        self.mlp = nn.Sequential()
-        for i in range(layer_number+1):
-            self.llm.append(model.model.layers[i])
-        
-        self.use_sae = use_sae
-        if self.use_sae:
-            self.map = nn.Linear(4096, 4096*expansion, bias=False)
-
-
-    @torch.autocast(device_type="cuda")
-    def forward(self, x):
-        pos_ids = None
-        attn_mask = None
-        extract_pos = None
-        if self.input_ids is not None:
-            pos_ids = torch.arange(0, self.input_ids.shape[1], dtype=torch.long, device=self.input_ids.device)[None, :]
-            _, pos_ids, attn_mask, _, x, _ = self.model.prepare_inputs_labels_for_multimodal(self.input_ids, pos_ids, None, None, None, x)
-            extract_pos = (x.shape[1] // 2) + self.input_ids.shape[1]
-        else:
-            x = self.vision_tower(x)
-            x = self.projector(x)
-            pos_ids = torch.arange(0, x.shape[1], dtype=torch.long, device=x.device)[None, :]
-            attn_mask = torch.ones((x.shape[0], 1, x.shape[1], x.shape[1]), dtype=torch.bool, device=x.device)
-            extract_pos = x.shape[1] // 2
-
-        for l in self.llm:
-            x = l(x, position_ids=pos_ids, attention_mask=attn_mask)[0]
-
-        x = x[:, extract_pos, :]
-        # x = x[:, -1, :]
-        # x = torch.mean(x, dim=1)
-
-        if self.use_sae:
-            x = self.map(x)
-
-        self.all_acts.append(x[0, self.target_neuron].detach().cpu().item())
-
-        #   add empty spatial dimensions for lucent's activation extraction
-        x = x[:, :, None, None]
-
-        return x
+from model_wrapper import ModelWrapper
 
 
 parser = argparse.ArgumentParser()
@@ -85,44 +27,63 @@ parser.add_argument('--module', type=str)
 parser.add_argument('--start_feat', type=int, default=0)
 parser.add_argument('--stop_feat', type=int, default=8)
 parser.add_argument('--sae', action='store_true')
+parser.add_argument('--use_saelens', action='store_true')
 parser.add_argument('--sae_root', type=str, required=False)
 parser.add_argument('--device', type=int, default=0)
-parser.add_argument('--jitter', type=int, default=16)
+parser.add_argument('--jitter', type=int, default=24)
 parser.add_argument('--steps', type=int, default=2560)
 args = parser.parse_args()
 
 device_str = f"cuda:{args.device}" if torch.cuda.is_available() else "cpu"
 
 model_path = "liuhaotian/llava-v1.6-mistral-7b"
-tokenizer, model, image_processor, context_len = load_pretrained_model(
+tokenizer, llava_model, image_processor, context_len = load_pretrained_model(
     model_path=model_path,
     model_base=None,
     model_name=get_model_name_from_path(model_path),
     device=device_str
 )
 
-# input_ids = tokenizer_image_token('What is this an image of?<image>', tokenizer, return_tensors='pt').to(device_str)
-
-model = LucentWrapper(model, None, int(args.module.split('.')[-1]), args.sae)
-model.to(device_str).eval()
+input_ids = tokenizer_image_token('What is this an image of?<image>', tokenizer, return_tensors='pt').to(device_str)
 
 units = None
+model = None
 if args.sae:
-    sae_sparsity = load_file(os.path.join(args.sae_root, "sparsity.safetensors"))['sparsity']
-    units = torch.nonzero(sae_sparsity > -5)[args.start_feat:args.stop_feat][:, 0].tolist()
-    sae_weights = load_file(os.path.join(args.sae_root, "sae_weights.safetensors"))
+    if args.use_saelens:
+        sae, _, _  = SAE.from_pretrained(
+            release = "mistral-7b-res-wg",
+            sae_id = f"{args.module}.hook_resid_pre",
+            device = device_str
+        )
+        sae_weights = sae.state_dict()
+        expansion = 16
+    else:
+        sae_weights = load_file(os.path.join(args.sae_root, "sae_weights.safetensors"))
+        sae_sparsity = load_file(os.path.join(args.sae_root, "sparsity.safetensors"))['sparsity']
+        expansion = 8
+        units = torch.nonzero(sae_sparsity > -5)[args.start_feat:args.stop_feat][:, 0].tolist()
+        sae_weights = load_file(os.path.join(args.sae_root, "sae_weights.safetensors"))
+
+    model = ModelWrapper(llava_model, input_ids, image_processor, int(args.module.split('.')[-1]), args.sae, expansion=expansion)
+    model.to(device_str).eval()
     states = model.state_dict()
-    states['map.weight'] = torch.transpose(sae_weights['W_enc'], 0, 1)
+    states['map.weight'] = sae_weights['W_dec']
     model.load_state_dict(states)
 else:
+    model = ModelWrapper(llava_model, input_ids, image_processor, int(args.module.split('.')[-1]), args.sae)
+    model.to(device_str).eval()
+
+if units is None:
     units = list(range(args.start_feat, args.stop_feat))
 
+clip_preprocess = lambda x: image_processor.preprocess(x, do_rescale=False, return_tensors='pt')['pixel_values']
 transforms = None
 if args.jitter < 4:
     transforms = [
         transform.random_scale([1, 0.975, 1.025, 0.95, 1.05]),
         transform.random_rotate([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]),
-        torchvision.transforms.CenterCrop(336)
+        torchvision.transforms.CenterCrop(336),
+        clip_preprocess
     ]
 else:
     transforms = [
@@ -131,7 +92,8 @@ else:
         transform.random_scale([1, 0.975, 1.025, 0.95, 1.05]),
         transform.random_rotate([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]),
         transform.jitter(int(args.jitter/2)),
-        torchvision.transforms.CenterCrop(336)
+        torchvision.transforms.CenterCrop(336),
+        # clip_preprocess
     ]
 
 for unit in units:
@@ -144,10 +106,10 @@ for unit in units:
     param_f = lambda: param.images.image(336, decorrelate=True)
     obj = objectives.neuron('0', unit)
 
-    imgs = render.render_vis(nn.Sequential(model), obj, param_f=param_f, transforms=transforms, thresholds=(args.steps,), show_image=False)
+    imgs = render.render_vis(nn.Sequential(model), obj, param_f=param_f, transforms=transforms, thresholds=(args.steps,), preprocess=False, show_image=False)
     img = Image.fromarray((imgs[0][0]*255).astype(np.uint8))
-    img.save(os.path.join(savedir, f"{args.steps}steps_distill_center_acts.png"))
+    img.save(os.path.join(savedir, f"{args.steps}steps_distill_max.png"))
 
-    np.save(os.path.join(savedir, f"{args.steps}steps_distill_center_acts.npy"), np.array(model.all_acts))
+    np.save(os.path.join(savedir, f"{args.steps}steps_distill_max.npy"), np.array(model.all_acts))
 
     model.all_acts = []
