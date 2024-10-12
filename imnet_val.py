@@ -5,18 +5,17 @@ import torchvision
 from torchvision import models, transforms
 
 
-def get_imnet_val_acts(model, valdir, batch_size=64, selected_neuron=None, neuron_coord=None, sort_acts=True, device='cpu'):
+def get_imnet_val_acts(model, valdir, batch_size=16, selected_neuron=None, neuron_coord=None, sort_acts=True, device='cpu'):
     IMAGE_SIZE = 336
-    # specify ImageNet mean and standard deviation
-    # MEAN = [0.485, 0.456, 0.406]
-    # STD = [0.229, 0.224, 0.225]
+    clip_mean = [0.48145466, 0.4578275, 0.40821073]
+    clip_std = [0.26862954, 0.26130258, 0.27577711]
 
     transform = transforms.Compose([
         transforms.Resize(384),
         transforms.CenterCrop(IMAGE_SIZE),
         transforms.ToTensor(),
     ])
-    # norm_transform = transforms.Normalize(mean=MEAN, std=STD)
+    clip_norm = transforms.Normalize(mean=clip_mean, std=clip_std)
 
     imagenet_data = torchvision.datasets.ImageFolder(valdir, transform=transform)
     dataloader = torch.utils.data.DataLoader(imagenet_data, batch_size=batch_size, shuffle=False, drop_last=False)
@@ -33,9 +32,9 @@ def get_imnet_val_acts(model, valdir, batch_size=64, selected_neuron=None, neuro
             im_count += inputs.shape[0]
 
             inputs, labels = inputs.to(device), labels.to(device)
-            # norm_inputs = norm_transform(inputs)
+            norm_inputs = clip_norm(inputs)
 
-            acts = torch.squeeze(model(inputs))
+            acts = torch.squeeze(model(norm_inputs))
             activations.append(acts.cpu())
 
             inputs = inputs.cpu()
