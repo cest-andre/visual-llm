@@ -1,5 +1,7 @@
 import os
 import sys
+import warnings
+warnings.simplefilter("ignore")
 from pathlib import Path
 import copy
 import argparse
@@ -91,7 +93,7 @@ if __name__ == '__main__':
         device=device_str
     )
 
-    input_ids = tokenizer_image_token('What is this an image of?<image>', tokenizer, return_tensors='pt').to(device_str)
+    input_ids = tokenizer_image_token('<image>A picture of', tokenizer, return_tensors='pt').to(device_str)
 
     if args.sae:
         if args.use_saelens:

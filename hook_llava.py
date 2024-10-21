@@ -14,7 +14,7 @@ from llava.mm_utils import get_model_name_from_path
 def load_hooked_llava(states_path=None, device='cuda'):
     llava_states = None
     if states_path is None:
-        llava_states = extract_llava_llm_weights()
+        llava_states = convert_llava_lens_weights()
     else:
         llava_states = torch.load(states_path)
 
@@ -36,6 +36,8 @@ def convert_llava_lens_weights(save_path=None):
         model_base=None,
         model_name=get_model_name_from_path(model_path)
     )
+
+    base_model = AutoModelForCausalLM.from_pretrained("mistralai/Mistral-7B-Instruct-v0.1")
 
     llava_states = llava_model.state_dict()
     states = base_model.state_dict()

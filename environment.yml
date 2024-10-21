@@ -91,7 +91,7 @@ dependencies:
       - kiwisolver==1.4.5
       - kornia==0.4.1
       - latex2mathml==3.77.0
-      - llava==1.2.2.post1
+      # - llava==1.2.2.post1
       - lxml==4.9.4
       - markdown-it-py==3.0.0
       - markdown2==2.5.0
@@ -158,8 +158,8 @@ dependencies:
       - requests==2.32.3
       - rich==13.7.1
       - ruff==0.6.1
-      - sae-lens==3.17.1
-      - sae-vis==0.2.21
+      - sae-lens
+      - sae-vis
       - safetensors==0.4.4
       - scikit-learn==1.5.1
       - scipy==1.14.0
@@ -188,7 +188,7 @@ dependencies:
       - torchvision==0.19.0
       - tqdm==4.66.5
       - traitlets==5.14.3
-      - transformer-lens==2.4.0
+      - transformer-lens
       - transformers==4.44.0
       - triton==3.0.0
       - typeguard==2.13.3

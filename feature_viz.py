@@ -2,12 +2,14 @@ from pathlib import Path
 import os
 import sys
 import argparse
+import warnings
+warnings.simplefilter("ignore")
 from PIL import Image
 import numpy as np
 import torch
 from torch import nn
 import torchvision
-from torchvision import models
+from torchvision import models, transforms
 from lucent.optvis import render, objectives, transform
 import lucent.optvis.param as param
 from safetensors.torch import load_file
@@ -41,10 +43,11 @@ tokenizer, llava_model, image_processor, context_len = load_pretrained_model(
     model_path=model_path,
     model_base=None,
     model_name=get_model_name_from_path(model_path),
-    device=device_str
+    device=device_str,
+    load_8bit=True
 )
 
-input_ids = tokenizer_image_token('What is this an image of?<image>', tokenizer, return_tensors='pt').to(device_str)
+input_ids = tokenizer_image_token('<image>A picture of', tokenizer, return_tensors='pt').to(device_str)
 
 units = None
 model = None
@@ -76,14 +79,17 @@ else:
 if units is None:
     units = list(range(args.start_feat, args.stop_feat))
 
-clip_preprocess = lambda x: image_processor.preprocess(x, do_rescale=False, return_tensors='pt')['pixel_values']
+# clip_preprocess = lambda x: image_processor.preprocess(x, do_rescale=False, return_tensors='pt')['pixel_values']
+
+clip_mean = [0.48145466, 0.4578275, 0.40821073]
+clip_std = [0.26862954, 0.26130258, 0.27577711]
+clip_norm = transforms.Normalize(mean=clip_mean, std=clip_std)
 transforms = None
 if args.jitter < 4:
     transforms = [
         transform.random_scale([1, 0.975, 1.025, 0.95, 1.05]),
         transform.random_rotate([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]),
-        torchvision.transforms.CenterCrop(336),
-        clip_preprocess
+        torchvision.transforms.CenterCrop(336)
     ]
 else:
     transforms = [
@@ -93,7 +99,7 @@ else:
         transform.random_rotate([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]),
         transform.jitter(int(args.jitter/2)),
         torchvision.transforms.CenterCrop(336),
-        # clip_preprocess
+        clip_norm
     ]
 
 for unit in units:
@@ -108,8 +114,8 @@ for unit in units:
 
     imgs = render.render_vis(nn.Sequential(model), obj, param_f=param_f, transforms=transforms, thresholds=(args.steps,), preprocess=False, show_image=False)
     img = Image.fromarray((imgs[0][0]*255).astype(np.uint8))
-    img.save(os.path.join(savedir, f"{args.steps}steps_distill_max.png"))
+    img.save(os.path.join(savedir, f"{args.steps}steps_distill_mean.png"))
 
-    np.save(os.path.join(savedir, f"{args.steps}steps_distill_max.npy"), np.array(model.all_acts))
+    np.save(os.path.join(savedir, f"{args.steps}steps_distill_mean.npy"), np.array(model.all_acts))
 
     model.all_acts = []

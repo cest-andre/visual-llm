@@ -5,7 +5,7 @@ import torchvision
 from torchvision import models, transforms
 
 
-def get_imnet_val_acts(model, valdir, batch_size=16, selected_neuron=None, neuron_coord=None, sort_acts=True, device='cpu'):
+def get_imnet_val_acts(model, valdir, batch_size=32, selected_neuron=None, neuron_coord=None, sort_acts=True, device='cpu'):
     IMAGE_SIZE = 336
     clip_mean = [0.48145466, 0.4578275, 0.40821073]
     clip_std = [0.26862954, 0.26130258, 0.27577711]
@@ -28,7 +28,7 @@ def get_imnet_val_acts(model, valdir, batch_size=16, selected_neuron=None, neuro
     im_count = 0
     for j, (inputs, labels) in enumerate(dataloader):
         with torch.no_grad():
-            # print(j)
+            print(f'\nBATCH {j}')
             im_count += inputs.shape[0]
 
             inputs, labels = inputs.to(device), labels.to(device)
@@ -40,6 +40,9 @@ def get_imnet_val_acts(model, valdir, batch_size=16, selected_neuron=None, neuro
             inputs = inputs.cpu()
             for inp in inputs:
                 all_images.append(inp)
+
+            if j == 10:
+                exit()
 
     all_ord_list = np.arange(im_count).tolist()
     unrolled_act = [num for sublist in activations for num in sublist]
