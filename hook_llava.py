@@ -2,7 +2,7 @@ import sys
 import os
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from sae_lens.load_model import load_model
+from transformer_lens import HookedTransformer
 import transformer_lens.loading_from_pretrained as loading
 from transformer_lens.pretrained.weight_conversions.mistral import convert_mistral_weights
 
@@ -11,16 +11,17 @@ from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
 
 
-def load_hooked_llava(states_path=None, device='cuda'):
+def load_hooked_llava(states_path=None, tokenizer=None, device='cpu'):
     llava_states = None
     if states_path is None:
         llava_states = convert_llava_lens_weights()
     else:
         llava_states = torch.load(states_path)
 
-    hooked_model = load_model(
-        'HookedTransformer',
-        'mistral-7b-instruct',
+    hooked_model = HookedTransformer.from_pretrained(
+        'mistral-7b',
+        default_prepend_bos=False,
+        tokenizer=tokenizer,
         device=device
     )
     hooked_model.load_and_process_state_dict(llava_states)
@@ -68,8 +69,7 @@ def convert_llava_lens_weights(save_path=None):
 
 
 def convert_mistral_v2_weights(save_path=None):
-    model = AutoModelForCausalLM.from_pretrained("/media/andrelongon/DATA/DO_NOT_DELETE/mistral_base_hf")
-    # model = AutoModelForCausalLM.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
+    model = AutoModelForCausalLM.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
 
     cfg = loading.get_pretrained_model_config(
         'mistralai/Mistral-7B-Instruct-v0.1',
